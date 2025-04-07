@@ -1,102 +1,67 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sound Control Line Illusions</title>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: white;
-        }
-        canvas {
-            border: 1px solid black;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>互動藝術介面 - 音量控制波浪</title>
+  <!-- 載入 p5.js 與 p5.sound.js -->
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.4.0/lib/p5.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.4.0/lib/addons/p5.sound.min.js"></script>
 </head>
 <body>
-    <canvas id="canvas"></canvas>
 
-    <script>
-        const canvas = document.getElementById("canvas");
-        const ctx = canvas.getContext("2d");
-        const width = window.innerWidth;
-        const height = window.innerHeight;
+<script>
+// 宣告麥克風物件
+let mic;
 
-        canvas.width = width;
-        canvas.height = height;
+// 畫布設定
+function setup() {
+  createCanvas(windowWidth, windowHeight);
 
-        // Setup Web Audio API to get microphone input
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 256;
-        const bufferLength = analyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
+  // 建立並啟動麥克風輸入
+  mic = new p5.AudioIn();
+  mic.start();
+}
 
-        // Get the microphone input
-        navigator.mediaDevices.getUserMedia({ audio: true })
-            .then(stream => {
-                const source = audioContext.createMediaStreamSource(stream);
-                source.connect(analyser);
-                animate();
-            })
-            .catch(err => {
-                console.error('Microphone access denied', err);
-            });
+function draw() {
+  background(240);
 
-        const lineCount = 50; // Number of lines to start with
-        let lines = []; // Store line properties
+  // 從麥克風取得當前音量 (0~1)
+  let audioLevel = mic.getLevel();
 
-        // Initialize lines
-        for (let i = 0; i < lineCount; i++) {
-            lines.push({
-                x: Math.random() * width,  // Random x-position
-                y: Math.random() * height, // Random y-position
-                angle: Math.random() * 2 * Math.PI, // Random angle
-                length: Math.random() * 100 + 50,  // Random initial length
-                width: Math.random() * 5 + 2  // Random initial width
-            });
-        }
+  // 將音量映射成較大的振幅 (可視需求調整 0~300、0~500...)
+  let amplitude = map(audioLevel, 0, 1, 0, 400);
 
-        function animate() {
-            analyser.getByteFrequencyData(dataArray);
+  // 線條參數設定
+  stroke(0);
+  strokeWeight(2);
+  noFill();
 
-            // Calculate the average volume (sum of dataArray)
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-                sum += dataArray[i];
-            }
-            const volume = sum / dataArray.length;
+  // 波浪數量 & 垂直間隔
+  let numberOfWaves = 15;
+  let waveGap = height / numberOfWaves;
 
-            // Map the volume to line properties
-            const volumeFactor = volume / 255;
+  // 時間相位，讓波浪產生流動感
+  let speed = 0.02;
+  let phase = frameCount * speed;
 
-            // Clear the canvas and redraw the lines
-            ctx.clearRect(0, 0, width, height);
+  // 繪製多條波浪
+  for (let i = 0; i < numberOfWaves; i++) {
+    beginShape();
+    let yBase = i * waveGap + waveGap / 2;
+    for (let x = 0; x <= width; x += 10) {
+      let wave = sin(x * 0.02 + phase + i) * amplitude;
+      let y = yBase + wave;
+      vertex(x, y);
+    }
+    endShape();
+  }
+}
 
-            // Update and draw each line
-            lines.forEach(line => {
-                const lineLength = line.length + volumeFactor * 300; // Volume affects the line length
-                const lineWidth = line.width + volumeFactor * 5;  // Volume affects the line width
+// 若視窗大小改變，讓畫布隨之重設
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
+</script>
 
-                const xEnd = line.x + Math.cos(line.angle) * lineLength;
-                const yEnd = line.y + Math.sin(line.angle) * lineLength;
-
-                ctx.beginPath();
-                ctx.moveTo(line.x, line.y);
-                ctx.lineTo(xEnd, yEnd);
-                ctx.lineWidth = lineWidth;
-                ctx.strokeStyle = 'black';
-                ctx.stroke();
-            });
-
-            requestAnimationFrame(animate);
-        }
-    </script>
 </body>
 </html>
