@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sound Control Line Illusions</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: white;
+        }
+        canvas {
+            border: 1px solid black;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+
+        canvas.width = width;
+        canvas.height = height;
+
+        // Setup Web Audio API to get microphone input
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        // Get the microphone input
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                const source = audioContext.createMediaStreamSource(stream);
+                source.connect(analyser);
+                animate();
+            })
+            .catch(err => {
+                console.error('Microphone access denied', err);
+            });
+
+        function animate() {
+            analyser.getByteFrequencyData(dataArray);
+
+            // Calculate the average volume (sum of dataArray)
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+            }
+            const volume = sum / dataArray.length;
+
+            // Map the volume to line properties
+            const lineLength = (volume / 255) * width / 2;
+            const lineWidth = (volume / 255) * 10;
+
+            // Clear the canvas and redraw the line
+            ctx.clearRect(0, 0, width, height);
+            ctx.beginPath();
+            ctx.moveTo(width / 2 - lineLength, height / 2);
+            ctx.lineTo(width / 2 + lineLength, height / 2);
+            ctx.lineWidth = lineWidth;
+            ctx.strokeStyle = 'black';
+            ctx.stroke();
+
+            requestAnimationFrame(animate);
+        }
+    </script>
+</body>
+</html>
