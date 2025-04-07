@@ -5,49 +5,64 @@
   <title>互動藝術介面 - 親子展遊戲</title>
   <!-- 載入 p5.js 程式庫 -->
   <script src="https://cdn.jsdelivr.net/npm/p5@1.4.0/lib/p5.js"></script>
+  <!-- 載入 p5.sound 程式庫 (提供麥克風音量功能) -->
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.4.0/lib/addons/p5.sound.min.js"></script>
 </head>
 <body>
 <script>
-/*
-  互動藝術示範:
-  1. 多條橫向波浪線 (y 軸方向劃分多段)
-  2. 鼠標 X 軸控制振幅大小 (mouseX 影響 amplitude)
-  3. 時間 (frameCount) 控制波浪的相位 (phase)
-*/
+// 宣告麥克風變數
+let mic;
 
-// 畫布大小
 function setup() {
   createCanvas(windowWidth, windowHeight);
+  // 初始化麥克風並啟動
+  mic = new p5.AudioIn();
+  mic.start();
 }
 
-// 繪製
 function draw() {
   background(240);
   
-  // 設置線條顏色、粗細
   stroke(0);
   strokeWeight(2);
   noFill();
   
-  // 取得滑鼠X位置，映射成振幅
-  // 為了避免出現過大數值，加個上限或縮放
-  let amplitude = map(mouseX, 0, width, 0, 200);
-
-  // 迴圈繪製多條橫向波浪線
-  let numberOfWaves = 15;        // 波浪的總條數 (可調整)
-  let waveGap = height / numberOfWaves;  // 每條之間的垂直間隔
+  // 取得麥克風音量 (值通常介於 0~1)
+  let vol = mic.getLevel();
   
-  // 時間因子 (讓線條不斷動)
-  let speed = 0.02;  // 調整波浪移動速度
+  // 判斷輸入來源：
+  // 若有觸控，則用觸控的 Y 軸；否則使用滑鼠的 X 軸控制
+  let inputValue;
+  let mappingRange;
+  if (touches.length > 0) {
+    // 手機觸控模式：以觸控第一點的 Y 值控制
+    inputValue = touches[0].y;
+    mappingRange = height;
+  } else {
+    // 桌面模式：以滑鼠 X 軸位置控制
+    inputValue = mouseX;
+    mappingRange = width;
+  }
+  
+  // 將輸入值映射至基礎振幅 (0~200)
+  let baseAmplitude = map(inputValue, 0, mappingRange, 0, 200);
+  
+  // 根據麥克風音量調整振幅
+  // 這裡用 (1 + vol * 5) 當作乘數，根據實際情況可調整倍率
+  let amplitude = baseAmplitude * (1 + vol * 5);
+  
+  let numberOfWaves = 15;             // 波浪條數
+  let waveGap = height / numberOfWaves; // 每條之間的垂直間隔
+  
+  let speed = 0.02;                   // 波浪移動速度
   let phase = frameCount * speed;
-
+  
+  // 繪製每一條波浪
   for (let i = 0; i < numberOfWaves; i++) {
     beginShape();
-    let yBase = i * waveGap + waveGap / 2; // 每條波浪的基準 y
+    let yBase = i * waveGap + waveGap / 2;
     for (let x = 0; x <= width; x += 10) {
-      // 以 sin 或 cos 製造週期性
       let wave = sin(x * 0.02 + phase + i) * amplitude;
-      // wave 計算出來的值用來做 Y 偏移
       let y = yBase + wave;
       vertex(x, y);
     }
