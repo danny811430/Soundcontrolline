@@ -2,96 +2,58 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <title>綜合互動 - 麥克風、滑鼠、裝置方向</title>
-  <!-- 載入 p5.js 與 p5.sound.js -->
+  <title>互動藝術介面 - 親子展遊戲</title>
+  <!-- 載入 p5.js 程式庫 -->
   <script src="https://cdn.jsdelivr.net/npm/p5@1.4.0/lib/p5.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/p5@1.4.0/lib/addons/p5.sound.min.js"></script>
 </head>
 <body>
-
 <script>
-// 麥克風物件
-let mic;
+/*
+  互動藝術示範:
+  1. 多條橫向波浪線 (y 軸方向劃分多段)
+  2. 鼠標 X 軸控制振幅大小 (mouseX 影響 amplitude)
+  3. 時間 (frameCount) 控制波浪的相位 (phase)
+*/
 
-// 設定畫布
+// 畫布大小
 function setup() {
   createCanvas(windowWidth, windowHeight);
-
-  // 啟用麥克風
-  mic = new p5.AudioIn();
-  mic.start();
-
-  // 防止手機螢幕自動翻轉（可視情況使用）
-  // screen.orientation.lock("portrait").catch(() => {});
-
-  // 若想讓手機第一次就跳出「允許裝置方向感測」提示，部分瀏覽器需要在畫面點擊或特定事件後才啟用
 }
 
 // 繪製
 function draw() {
   background(240);
-
-  // 1. 麥克風音量 (Audio Level)
-  let audioLevel = mic.getLevel();         // 0 ~ 1
-  let amplitude  = map(audioLevel, 0, 1, 0, 200);
-
-  // 2. 手機旋轉 (Device Orientation)
-  //    預設 rotationX/rotationY 是「左右傾斜/前後傾斜」、rotationZ 是「螢幕平面旋轉」
-  //    只在手機或平板上才有意義；電腦可能固定為 0 或無法使用。
-  let freqOffset = map(rotationZ, -180, 180, 0.01, 0.1); 
-  // 這裡將 Z 軸旋轉 (範圍 -180 ~ 180) 映射到 0.01 ~ 0.1 作為頻率因子
-
-  // 3. 滑鼠位置 (Mouse)
-  //    - 在桌面上就是滑鼠位置
-  //    - 在手機上可視為手指觸控位置
-  let mouseInfluence = map(mouseX, 0, width, 0.5, 2.0);
-  // 這裡將滑鼠 X 從 0 ~ width，映射到 0.5 ~ 2.0，當作「波浪流動速度」的倍率
-
-  // 設定線條
+  
+  // 設置線條顏色、粗細
   stroke(0);
   strokeWeight(2);
   noFill();
-
-  // 基本波浪參數
-  let numberOfWaves = 15;
-  let waveGap       = height / numberOfWaves;
   
-  // 計算相位 (phase)
-  let baseSpeed = 0.02;
-  let phase = frameCount * baseSpeed * mouseInfluence; // 把滑鼠參數混進來，讓速度受滑鼠影響
+  // 取得滑鼠X位置，映射成振幅
+  // 為了避免出現過大數值，加個上限或縮放
+  let amplitude = map(mouseX, 0, width, 0, 200);
 
-  // 繪製多條波浪
+  // 迴圈繪製多條橫向波浪線
+  let numberOfWaves = 15;        // 波浪的總條數 (可調整)
+  let waveGap = height / numberOfWaves;  // 每條之間的垂直間隔
+  
+  // 時間因子 (讓線條不斷動)
+  let speed = 0.02;  // 調整波浪移動速度
+  let phase = frameCount * speed;
+
   for (let i = 0; i < numberOfWaves; i++) {
     beginShape();
-    let yBase = i * waveGap + waveGap / 2;
+    let yBase = i * waveGap + waveGap / 2; // 每條波浪的基準 y
     for (let x = 0; x <= width; x += 10) {
-      // freqOffset 由手機旋轉控制
-      let wave = sin(x * freqOffset + phase + i) * amplitude;
+      // 以 sin 或 cos 製造週期性
+      let wave = sin(x * 0.02 + phase + i) * amplitude;
+      // wave 計算出來的值用來做 Y 偏移
       let y = yBase + wave;
       vertex(x, y);
     }
     endShape();
   }
-
-  // 將目前參數即時顯示在畫面上 (Debug / 提示)
-  drawInfo(amplitude, freqOffset, mouseInfluence);
-}
-
-// 若視窗改變尺寸，自動調整畫布
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-}
-
-// 顯示參數資訊
-function drawInfo(amp, freq, mouseInf) {
-  fill(0);
-  noStroke();
-  textSize(16);
-  text("麥克風振幅: " + nf(amp, 1, 2),  10, 20);
-  text("Z 軸旋轉頻率: " + nf(freq, 1, 3), 10, 40);
-  text("滑鼠速度倍率: " + nf(mouseInf, 1, 2), 10, 60);
 }
 </script>
-
 </body>
 </html>
