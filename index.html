@@ -49,6 +49,20 @@
                 console.error('Microphone access denied', err);
             });
 
+        const lineCount = 50; // Number of lines to start with
+        let lines = []; // Store line properties
+
+        // Initialize lines
+        for (let i = 0; i < lineCount; i++) {
+            lines.push({
+                x: Math.random() * width,  // Random x-position
+                y: Math.random() * height, // Random y-position
+                angle: Math.random() * 2 * Math.PI, // Random angle
+                length: Math.random() * 100 + 50,  // Random initial length
+                width: Math.random() * 5 + 2  // Random initial width
+            });
+        }
+
         function animate() {
             analyser.getByteFrequencyData(dataArray);
 
@@ -60,17 +74,26 @@
             const volume = sum / dataArray.length;
 
             // Map the volume to line properties
-            const lineLength = (volume / 255) * width / 2;
-            const lineWidth = (volume / 255) * 10;
+            const volumeFactor = volume / 255;
 
-            // Clear the canvas and redraw the line
+            // Clear the canvas and redraw the lines
             ctx.clearRect(0, 0, width, height);
-            ctx.beginPath();
-            ctx.moveTo(width / 2 - lineLength, height / 2);
-            ctx.lineTo(width / 2 + lineLength, height / 2);
-            ctx.lineWidth = lineWidth;
-            ctx.strokeStyle = 'black';
-            ctx.stroke();
+
+            // Update and draw each line
+            lines.forEach(line => {
+                const lineLength = line.length + volumeFactor * 300; // Volume affects the line length
+                const lineWidth = line.width + volumeFactor * 5;  // Volume affects the line width
+
+                const xEnd = line.x + Math.cos(line.angle) * lineLength;
+                const yEnd = line.y + Math.sin(line.angle) * lineLength;
+
+                ctx.beginPath();
+                ctx.moveTo(line.x, line.y);
+                ctx.lineTo(xEnd, yEnd);
+                ctx.lineWidth = lineWidth;
+                ctx.strokeStyle = 'black';
+                ctx.stroke();
+            });
 
             requestAnimationFrame(animate);
         }
