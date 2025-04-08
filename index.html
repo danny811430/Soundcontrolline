@@ -1,74 +1,133 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>互動藝術介面 - 親子展遊戲</title>
-  <!-- 載入 p5.js 程式庫 -->
-  <script src="https://cdn.jsdelivr.net/npm/p5@1.4.0/lib/p5.js"></script>
-  <!-- 載入 p5.sound 程式庫 (提供麥克風音量功能) -->
-  <script src="https://cdn.jsdelivr.net/npm/p5@1.4.0/lib/addons/p5.sound.min.js"></script>
+  <title>20條黑線 + 攝影機人物輪廓</title>
+  <style>
+    /* 1. 隱藏攝影機畫面，不讓使用者看到實際video */
+    #video {
+      display: none;
+    }
+    /* 2. 讓畫布充滿整個視窗；或你也可改固定寬高 */
+    html, body {
+      margin: 0; 
+      padding: 0; 
+      background: #fff; /* 整個背景白色 */
+      overflow: hidden; /* 隱藏捲軸 */
+      width: 100%;
+      height: 100%;
+    }
+    canvas {
+      display: block;
+    }
+  </style>
 </head>
 <body>
+
+<video id="video" width="640" height="480" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
 <script>
-// 宣告麥克風變數
-let mic;
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
 
-function setup() {
-  createCanvas(windowWidth, windowHeight);
-  // 初始化麥克風並啟動
-  mic = new p5.AudioIn();
-  mic.start();
-}
-
-function draw() {
-  background(240);
-  
-  stroke(0);
-  strokeWeight(2);
-  noFill();
-  
-  // 取得麥克風音量 (值通常介於 0~1)
-  let vol = mic.getLevel();
-  
-  // 判斷輸入來源：
-  // 若有觸控，則用觸控的 Y 軸；否則使用滑鼠的 X 軸控制
-  let inputValue;
-  let mappingRange;
-  if (touches.length > 0) {
-    // 手機觸控模式：以觸控第一點的 Y 值控制
-    inputValue = touches[0].y;
-    mappingRange = height;
-  } else {
-    // 桌面模式：以滑鼠 X 軸位置控制
-    inputValue = mouseX;
-    mappingRange = width;
+  // 讓 canvas 與視窗等大（可自行調整）
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
   }
-  
-  // 將輸入值映射至基礎振幅 (0~200)
-  let baseAmplitude = map(inputValue, 0, mappingRange, 0, 200);
-  
-  // 根據麥克風音量調整振幅
-  // 這裡用 (1 + vol * 5) 當作乘數，根據實際情況可調整倍率
-  let amplitude = baseAmplitude * (1 + vol * 5);
-  
-  let numberOfWaves = 15;             // 波浪條數
-  let waveGap = height / numberOfWaves; // 每條之間的垂直間隔
-  
-  let speed = 0.02;                   // 波浪移動速度
-  let phase = frameCount * speed;
-  
-  // 繪製每一條波浪
-  for (let i = 0; i < numberOfWaves; i++) {
-    beginShape();
-    let yBase = i * waveGap + waveGap / 2;
-    for (let x = 0; x <= width; x += 10) {
-      let wave = sin(x * 0.02 + phase + i) * amplitude;
-      let y = yBase + wave;
-      vertex(x, y);
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  // ===== 取得攝影機影像 =====
+  async function setupCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => resolve(video);
+      });
+    } catch (err) {
+      console.error('無法存取攝影機:', err);
     }
-    endShape();
   }
-}
+
+  // ===== 主要繪製函式 =====
+  // 透過「20 條線」模擬整體畫面的凹凸
+  const NUM_LINES = 20;          // 要繪製的掃描線條數量
+  const AMPLITUDE_SCALE = 0.3;   // 位移比例(可自行調整凹凸感，數值越大越誇張)
+  // 注意：AMPLITUDE_SCALE 有點像「將 (128 - brightness) 乘上的倍數」。
+
+  function drawContour() {
+    // 1) 先把當前攝影機畫面「抓」到暫存
+    //    這裡為了確保完整畫面，先將video縮放到canvas大小(或等比例)
+    //    如果攝影機是 640x480，你可以直接把它繪到相同比例區域，再讀像素
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // 2) 取得畫面像素資料
+    const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = frame.data;
+
+    // 3) 清空 (重新鋪滿白色，避免殘影)
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 4) 根據掃描線數量，計算每條線對應的「垂直位置」
+    for (let i = 0; i < NUM_LINES; i++) {
+      // lineY 是第 i 條掃描線在畫面中的基準高度
+      const lineY = Math.floor((i / (NUM_LINES - 1)) * (canvas.height - 1));
+
+      // 開始繪製這條曲線
+      ctx.beginPath();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#000'; // 黑線
+
+      for (let x = 0; x <= canvas.width; x += 1) {
+        // 找出 (x, lineY) 在影像中的像素索引
+        // data 的索引 = (y * width + x) * 4
+        const index = (lineY * canvas.width + x) * 4;
+        const r = data[index];
+        const g = data[index + 1];
+        const b = data[index + 2];
+        // const a = data[index + 3]; // 透明度(0~255)，本例未使用
+
+        // 計算亮度(灰階)
+        const brightness = (r + g + b) / 3; // 簡單平均
+        // 也可改用加權: 0.299r + 0.587g + 0.114b
+
+        // 決定此像素對應的「上下位移」
+        // 假設 brightness=128 時，位移=0；亮度越大=>線條向上或下(可自行定義)
+        // 這裡示範：亮度比 128 小 => 線往下，亮度比 128 大 => 線往上
+        // 位移幅度可用 AMPLITUDE_SCALE 調整
+        let offset = (128 - brightness) * AMPLITUDE_SCALE;
+
+        // 計算實際的 y 座標
+        const actualY = lineY + offset;
+
+        if (x === 0) {
+          ctx.moveTo(x, actualY);
+        } else {
+          ctx.lineTo(x, actualY);
+        }
+      }
+
+      ctx.stroke();
+    }
+  }
+
+  function mainLoop() {
+    // 每一禎都重新繪製
+    drawContour();
+    requestAnimationFrame(mainLoop);
+  }
+
+  (async () => {
+    await setupCamera(); // 等攝影機就緒
+    video.play();
+    mainLoop();
+  })();
 </script>
+
 </body>
 </html>
