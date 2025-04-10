@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>阻尼效果、平滑且細線條 - 攝影機輪廓</title>
+  <style>
+    /* 隱藏攝影機畫面 */
+    #video {
+      display: none;
+    }
+    /* 全白背景 */
+    html, body {
+      margin: 0; 
+      padding: 0; 
+      background: #fff; 
+      overflow: hidden; 
+      width: 100%;
+      height: 100%;
+    }
+    canvas {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <!-- 攝影機串流：只用於讀取影像資料 -->
+  <video id="video" width="640" height="480" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // 調整 canvas 滿版
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // 取得攝影機串流
+    async function setupCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        return new Promise((resolve) => {
+          video.onloadedmetadata = () => resolve(video);
+        });
+      } catch (err) {
+        console.error('無法存取攝影機:', err);
+      }
+    }
+
+    // ==== 參數設定 ====
+    const NUM_LINES = 30;           // 掃描線數量
+    const AMPLITUDE_SCALE = 0.2;    // 位移倍率（不改變振幅，只讓曲線起伏更明顯）
+    const baseThickness = 1;        // 線條最小粗細（較細）
+    const thicknessScale = 1;       // 粗細增量比例
+    const sampleStep = 8;           // 水平取樣間距 (像素)
+    const updateInterval = 1;     // 更新間隔（毫秒）
+    const damping = 0.5;            // 阻尼係數：新值與舊值之間的調和比例
+
+    // 全域變數，用來儲存上一個更新的輪廓資料
+    let contourLines = [];
+
+    // 更新攝影機影像並計算新的輪廓資料，採用阻尼使曲線平滑過渡
+    function updateContour() {
+      // 先把攝影機畫面繪到 canvas（作為取樣來源）
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = frame.data;
+
+      let newContours = [];
+      for (let i = 0; i < NUM_LINES; i++) {
+        // 每條線的基準高度
+        const lineY = Math.floor((i / (NUM_LINES - 1)) * (canvas.height - 1));
+        let xs = [];
+        let newYs = [];
+        let newThicknesses = [];
+
+        // 橫向逐點取樣
+        for (let x = 0; x <= canvas.width; x += sampleStep) {
+          const index = (lineY * canvas.width + x) * 4;
+          if (index >= data.length) break;
+          const r = data[index],
+                g = data[index + 1],
+                b = data[index + 2];
+          // 計算亮度（簡單平均）
+          const brightness = (r + g + b) / 3;
+          // 以 (128 - brightness) 計算位移（當 brightness 接近 128 時位移最大）
+          const offset = (128 - brightness) * AMPLITUDE_SCALE;
+          const yPos = lineY + offset;
+          xs.push(x);
+          newYs.push(yPos);
+          // 新公式：亮度越接近 128，線條越粗；偏離時線條變細
+          const thickness = baseThickness + ((128 - Math.abs(128 - brightness)) / 128) * thicknessScale;
+          newThicknesses.push(thickness);
+        }
+        // 平滑處理：用移動平均法降低雜訊，使曲線更柔順
+        const windowSize = 7;
+        let smoothedYs = newYs.slice();
+        for (let j = Math.floor(windowSize / 2); j < newYs.length - Math.floor(windowSize / 2); j++) {
+          let sum = 0;
+          for (let k = -Math.floor(windowSize / 2); k <= Math.floor(windowSize / 2); k++) {
+            sum += newYs[j + k];
+          }
+          smoothedYs[j] = sum / windowSize;
+        }
+        let smoothedThicknesses = newThicknesses.slice();
+        for (let j = Math.floor(windowSize / 2); j < newThicknesses.length - Math.floor(windowSize / 2); j++) {
+          let sum = 0;
+          for (let k = -Math.floor(windowSize / 2); k <= Math.floor(windowSize / 2); k++) {
+            sum += newThicknesses[j + k];
+          }
+          smoothedThicknesses[j] = sum / windowSize;
+        }
+
+        // 阻尼處理：讓新數值與前次數值進行平滑過渡
+        if (contourLines[i]) {
+          let oldYs = contourLines[i].ys;
+          let oldThickness = contourLines[i].thickness;
+          for (let j = 0; j < smoothedYs.length; j++) {
+            smoothedYs[j] = oldYs[j] + damping * (smoothedYs[j] - oldYs[j]);
+            smoothedThicknesses[j] = oldThickness[j] + damping * (smoothedThicknesses[j] - oldThickness[j]);
+          }
+        }
+        newContours.push({
+          xs: xs,
+          ys: smoothedYs,
+          thickness: smoothedThicknesses
+        });
+      }
+      contourLines = newContours;
+    }
+
+    // 繪製採用目前 contourLines 資料的輪廓線
+    function drawContour() {
+      // 清空畫布（白色背景）
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // 繪製每一條掃描線
+      contourLines.forEach(line => {
+        const xs = line.xs, ys = line.ys, thickness = line.thickness;
+        for (let j = 0; j < xs.length - 1; j++) {
+          ctx.beginPath();
+          // 區段平均粗細
+          ctx.lineWidth = (thickness[j] + thickness[j + 1]) / 2;
+          // 使用圓形端點和平滑轉折
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.moveTo(xs[j], ys[j]);
+          ctx.lineTo(xs[j + 1], ys[j + 1]);
+          ctx.strokeStyle = '#000';
+          ctx.stroke();
+        }
+      });
+    }
+
+    // 利用 requestAnimationFrame 每禎更新繪製，
+    // 並利用 updateInterval 控制每隔一段時間更新一次影像資料
+    let lastUpdateTime = 0;
+    function mainLoop(timeStamp) {
+      if (timeStamp - lastUpdateTime > updateInterval) {
+        lastUpdateTime = timeStamp;
+        updateContour();
+      }
+      drawContour();
+      requestAnimationFrame(mainLoop);
+    }
+
+    (async () => {
+      await setupCamera();
+      video.play();
+      requestAnimationFrame(mainLoop);
+    })();
+  </script>
+</body>
+</html>
+
