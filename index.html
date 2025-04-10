@@ -2,132 +2,115 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>20條黑線 + 攝影機人物輪廓</title>
+  <title>簡化版 - 阻尼效果、平滑且細線條 - 攝影機輪廓</title>
   <style>
-    /* 1. 隱藏攝影機畫面，不讓使用者看到實際video */
-    #video {
-      display: none;
-    }
-    /* 2. 讓畫布充滿整個視窗；或你也可改固定寬高 */
+    /* 隱藏攝影機畫面 */
+    #video { display: none; }
+    /* 全白背景 */
     html, body {
-      margin: 0; 
-      padding: 0; 
-      background: #fff; /* 整個背景白色 */
-      overflow: hidden; /* 隱藏捲軸 */
-      width: 100%;
-      height: 100%;
+      margin: 0; padding: 0; background: #fff; overflow: hidden;
+      width: 100%; height: 100%;
     }
-    canvas {
-      display: block;
-    }
+    canvas { display: block; }
   </style>
 </head>
 <body>
+  <!-- 攝影機串流（只用作讀取影像資料） -->
+  <video id="video" width="640" height="480" autoplay playsinline></video>
+  <canvas id="canvas"></canvas>
 
-<video id="video" width="640" height="480" autoplay playsinline></video>
-<canvas id="canvas"></canvas>
-
-<script>
-  const video = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-
-  // 讓 canvas 與視窗等大（可自行調整）
-  function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-  }
-  window.addEventListener('resize', resizeCanvas);
-  resizeCanvas();
-
-  // ===== 取得攝影機影像 =====
-  async function setupCamera() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = stream;
-      return new Promise((resolve) => {
-        video.onloadedmetadata = () => resolve(video);
-      });
-    } catch (err) {
-      console.error('無法存取攝影機:', err);
+  <script>
+    const video = document.getElementById('video'),
+          canvas = document.getElementById('canvas'),
+          ctx = canvas.getContext('2d');
+    function resizeCanvas(){ canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    window.addEventListener('resize', resizeCanvas); resizeCanvas();
+    async function setupCamera(){
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        return new Promise(resolve => { video.onloadedmetadata = () => resolve(video); });
+      } catch(err) { console.error('無法存取攝影機:', err); }
     }
-  }
 
-  // ===== 主要繪製函式 =====
-  // 透過「20 條線」模擬整體畫面的凹凸
-  const NUM_LINES = 20;          // 要繪製的掃描線條數量
-  const AMPLITUDE_SCALE = 0.3;   // 位移比例(可自行調整凹凸感，數值越大越誇張)
-  // 注意：AMPLITUDE_SCALE 有點像「將 (128 - brightness) 乘上的倍數」。
+    // === 參數設定（這裡降低部分精度以壓縮計算量）===
+    const NUM_LINES = 15,         // 減少掃描線數量
+          AMPLITUDE_SCALE = 0.2,  // 位移倍率
+          baseThickness = 0.5,    // 線條最小粗細
+          thicknessScale = 2,     // 粗細增量比例
+          sampleStep = 4,         // 水平取樣間距增加至 4 像素
+          updateInterval = 200,   // 更新間隔延長至 200 毫秒
+          damping = 0.5;          // 阻尼係數
 
-  function drawContour() {
-    // 1) 先把當前攝影機畫面「抓」到暫存
-    //    這裡為了確保完整畫面，先將video縮放到canvas大小(或等比例)
-    //    如果攝影機是 640x480，你可以直接把它繪到相同比例區域，再讀像素
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // 2) 取得畫面像素資料
-    const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = frame.data;
-
-    // 3) 清空 (重新鋪滿白色，避免殘影)
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // 4) 根據掃描線數量，計算每條線對應的「垂直位置」
-    for (let i = 0; i < NUM_LINES; i++) {
-      // lineY 是第 i 條掃描線在畫面中的基準高度
-      const lineY = Math.floor((i / (NUM_LINES - 1)) * (canvas.height - 1));
-
-      // 開始繪製這條曲線
-      ctx.beginPath();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#000'; // 黑線
-
-      for (let x = 0; x <= canvas.width; x += 1) {
-        // 找出 (x, lineY) 在影像中的像素索引
-        // data 的索引 = (y * width + x) * 4
-        const index = (lineY * canvas.width + x) * 4;
-        const r = data[index];
-        const g = data[index + 1];
-        const b = data[index + 2];
-        // const a = data[index + 3]; // 透明度(0~255)，本例未使用
-
-        // 計算亮度(灰階)
-        const brightness = (r + g + b) / 3; // 簡單平均
-        // 也可改用加權: 0.299r + 0.587g + 0.114b
-
-        // 決定此像素對應的「上下位移」
-        // 假設 brightness=128 時，位移=0；亮度越大=>線條向上或下(可自行定義)
-        // 這裡示範：亮度比 128 小 => 線往下，亮度比 128 大 => 線往上
-        // 位移幅度可用 AMPLITUDE_SCALE 調整
-        let offset = (128 - brightness) * AMPLITUDE_SCALE;
-
-        // 計算實際的 y 座標
-        const actualY = lineY + offset;
-
-        if (x === 0) {
-          ctx.moveTo(x, actualY);
-        } else {
-          ctx.lineTo(x, actualY);
+    let contourLines = [];
+    function updateContour(){
+      // 取用攝影機影像作為取樣來源
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const data = ctx.getImageData(0,0,canvas.width,canvas.height).data,
+            newContours = [];
+      for(let i=0; i<NUM_LINES; i++){
+        const lineY = Math.floor((i/(NUM_LINES-1))*(canvas.height-1));
+        let xs = [], ys = [], thicknesses = [];
+        for(let x=0; x<=canvas.width; x += sampleStep){
+          const idx = (lineY*canvas.width + x) * 4;
+          if(idx >= data.length) break;
+          const brightness = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+          xs.push(x);
+          ys.push(lineY + (128 - brightness) * AMPLITUDE_SCALE);
+          thicknesses.push(baseThickness + ((128 - Math.abs(128 - brightness)) / 128) * thicknessScale);
         }
+        // 使用簡單移動平均（窗口大小為3）平滑數據
+        const win = 3;
+        let smoothYs = ys.slice(), smoothTs = thicknesses.slice();
+        for(let j = Math.floor(win/2); j < ys.length - Math.floor(win/2); j++){
+          let sumY = 0, sumT = 0;
+          for(let k = -Math.floor(win/2); k <= Math.floor(win/2); k++){
+            sumY += ys[j+k];
+            sumT += thicknesses[j+k];
+          }
+          smoothYs[j] = sumY / win;
+          smoothTs[j] = sumT / win;
+        }
+        // 阻尼處理：使數據更新時過渡更平滑
+        if(contourLines[i]){
+          for(let j=0; j<smoothYs.length; j++){
+            smoothYs[j] = contourLines[i].ys[j] + damping * (smoothYs[j] - contourLines[i].ys[j]);
+            smoothTs[j] = contourLines[i].thickness[j] + damping * (smoothTs[j] - contourLines[i].thickness[j]);
+          }
+        }
+        newContours.push({ xs, ys: smoothYs, thickness: smoothTs });
       }
-
-      ctx.stroke();
+      contourLines = newContours;
     }
-  }
-
-  function mainLoop() {
-    // 每一禎都重新繪製
-    drawContour();
-    requestAnimationFrame(mainLoop);
-  }
-
-  (async () => {
-    await setupCamera(); // 等攝影機就緒
-    video.play();
-    mainLoop();
-  })();
-</script>
-
+    function drawContour(){
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      contourLines.forEach(line => {
+        for(let j=0; j<line.xs.length-1; j++){
+          ctx.beginPath();
+          ctx.lineWidth = (line.thickness[j] + line.thickness[j+1]) / 2;
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+          ctx.moveTo(line.xs[j], line.ys[j]);
+          ctx.lineTo(line.xs[j+1], line.ys[j+1]);
+          ctx.strokeStyle = '#000';
+          ctx.stroke();
+        }
+      });
+    }
+    let lastUpdateTime = 0;
+    function mainLoop(timeStamp){
+      if(timeStamp - lastUpdateTime > updateInterval){
+        lastUpdateTime = timeStamp;
+        updateContour();
+      }
+      drawContour();
+      requestAnimationFrame(mainLoop);
+    }
+    (async ()=>{
+      await setupCamera();
+      video.play();
+      requestAnimationFrame(mainLoop);
+    })();
+  </script>
 </body>
 </html>
